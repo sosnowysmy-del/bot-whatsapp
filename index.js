@@ -52,7 +52,13 @@ function czyZawieraPrzeklenstwo(tekst) {
 
 app.get('/', async (req, res) => {
     if (bladBota) {
-        return res.send(`<html><body style="background:#0f172a;color:#f87171;font-family:sans-serif;padding:30px;"><h2>Błąd: ${bladBota}</h2></body></html>`);
+        return res.send(`
+            <html><head><meta charset="utf-8"></head>
+            <body style="background:#0f172a;color:#f87171;font-family:sans-serif;text-align:center;padding:40px;">
+                <h2>Błąd: ${bladBota}</h2>
+                <br><a href="/restart" style="padding:12px 24px;background:#22c55e;color:#fff;text-decoration:none;border-radius:8px;">Spróbuj ponownie</a>
+            </body></html>
+        `);
     }
 
     if (!botGotowy && ostatniQR) {
@@ -73,7 +79,7 @@ app.get('/', async (req, res) => {
         return res.send(`
             <html><head><meta charset="utf-8"><meta http-equiv="refresh" content="6"></head>
             <body style="background:#0f172a;color:#38bdf8;font-family:sans-serif;text-align:center;padding-top:80px;">
-                <h2>⏳ Generowanie kodu QR... Strona odświeży się sama za 6 sekund.</h2>
+                <h2>⏳ Ładowanie i synchronizacja WhatsApp... Strona odświeży się sama za 6 sekund.</h2>
             </body></html>
         `);
     }
@@ -134,6 +140,13 @@ app.get('/', async (req, res) => {
     `);
 });
 
+app.get('/restart', (req, res) => {
+    bladBota = '';
+    ostatniQR = '';
+    client.initialize().catch(err => { bladBota = err.message; });
+    res.redirect('/');
+});
+
 app.get('/toggle/:co', (req, res) => {
     const co = req.params.co;
     if (co === 'ochrona') config.ochronaAktywna = !config.ochronaAktywna;
@@ -170,19 +183,19 @@ app.listen(PORT, () => console.log(`Panel bota działa na porcie ${PORT}`));
 
 const client = new Client({
     authStrategy: new LocalAuth(),
+    authTimeoutMs: 0,
+    qrMaxRetries: 10,
     puppeteer: {
         headless: true,
+        timeout: 0,
+        protocolTimeout: 0,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
             '--disable-gpu',
             '--disable-extensions',
-            '--js-flags=--max-old-space-size=256'
+            '--no-first-run'
         ]
     }
 });
@@ -193,10 +206,15 @@ client.on('qr', (qr) => {
     console.log('QR wygenerowany!');
 });
 
+client.on('authenticated', () => {
+    ostatniQR = '';
+    console.log('Zeskanowano kod QR, trwa ładowanie czatów...');
+});
+
 client.on('ready', () => {
     botGotowy = true;
     ostatniQR = '';
-    console.log('Bot WhatsApp połączony!');
+    console.log('Bot WhatsApp połączony i gotowy!');
 });
 
 client.on('message_create', async (msg) => {
