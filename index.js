@@ -9,6 +9,7 @@ const PORT = process.env.PORT || 3000;
 
 let ostatniQR = '';
 let botGotowy = false;
+let bladBota = '';
 
 const PLIK_USTAWIEN = 'ustawienia.json';
 let config = {
@@ -35,10 +36,9 @@ function zapiszUstawienia() {
 function czyTrwaCiszaNocna() {
     if (!config.trybNocnyAktywny) return false;
     const godz = new Date().getHours();
-    if (config.godzinaZamkniecia < config.godzinaOtwarcia) {
-        return godz >= config.godzinaZamkniecia && godz < config.godzinaOtwarcia;
-    }
-    return godz >= config.godzinaZamkniecia || godz < config.godzinaOtwarcia;
+    return config.godzinaZamkniecia < config.godzinaOtwarcia
+        ? (godz >= config.godzinaZamkniecia && godz < config.godzinaOtwarcia)
+        : (godz >= config.godzinaZamkniecia || godz < config.godzinaOtwarcia);
 }
 
 function czyZawieraPrzeklenstwo(tekst) {
@@ -51,6 +51,10 @@ function czyZawieraPrzeklenstwo(tekst) {
 }
 
 app.get('/', async (req, res) => {
+    if (bladBota) {
+        return res.send(`<html><body style="background:#0f172a;color:#f87171;font-family:sans-serif;padding:30px;"><h2>Błąd: ${bladBota}</h2></body></html>`);
+    }
+
     if (!botGotowy && ostatniQR) {
         const qrImage = await QRCode.toDataURL(ostatniQR);
         return res.send(`
@@ -67,9 +71,9 @@ app.get('/', async (req, res) => {
 
     if (!botGotowy) {
         return res.send(`
-            <html><head><meta charset="utf-8"><meta http-equiv="refresh" content="5"></head>
+            <html><head><meta charset="utf-8"><meta http-equiv="refresh" content="6"></head>
             <body style="background:#0f172a;color:#38bdf8;font-family:sans-serif;text-align:center;padding-top:80px;">
-                <h2>⏳ Uruchamianie bota... Strona odświeży się sama za 5 sekund.</h2>
+                <h2>⏳ Generowanie kodu QR... Strona odświeży się sama za 6 sekund.</h2>
             </body></html>
         `);
     }
@@ -95,7 +99,6 @@ app.get('/', async (req, res) => {
 
             <div class="card">
                 <h3>🌙 Cisza nocna (${config.godzinaZamkniecia}:00 – ${config.godzinaOtwarcia}:00): ${config.trybNocnyAktywny ? '<span style="color:#4ade80">ON</span>' : '<span style="color:#f87171">OFF</span>'}</h3>
-                <p style="font-size:13px;color:#94a3b8;">W tych godzinach bot automatycznie usuwa każdą wiadomość na grupie.</p>
                 <a href="/toggle/noc" class="btn ${config.trybNocnyAktywny ? 'off' : 'on'}">${config.trybNocnyAktywny ? 'Wyłącz ciszę nocną' : 'Włącz ciszę nocną'}</a>
             </div>
 
@@ -169,13 +172,25 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu',
+            '--disable-extensions',
+            '--js-flags=--max-old-space-size=256'
+        ]
     }
 });
 
 client.on('qr', (qr) => {
     ostatniQR = qr;
     botGotowy = false;
+    console.log('QR wygenerowany!');
 });
 
 client.on('ready', () => {
@@ -223,4 +238,7 @@ client.on('message_create', async (msg) => {
     }
 });
 
-client.initialize();
+client.initialize().catch(err => {
+    bladBota = err.message;
+    console.error('Błąd startu:', err);
+});
